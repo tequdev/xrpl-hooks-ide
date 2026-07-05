@@ -61,7 +61,10 @@ export const prepareDeployHookTx = async (
     return
   }
   const HookNamespace = (await sha256(data.HookNamespace)).toUpperCase()
+  // If both hookOnIncoming and hookOnOutgoing are empty, use hookOn
   const hookOnValues: (keyof TTS)[] = data.Invoke.map(tt => tt.value)
+  const hookOnIncomingValues: (keyof TTS)[] = data.InvokeIncoming.map(tt => tt.value)
+  const hookOnOutgoingValues: (keyof TTS)[] = data.InvokeOutgoing.map(tt => tt.value)
   // In this IDE, does't select any transactions (length == 0) for HookCanEmit means it's allowed to emit all transactions (omit HookCanEmit)
   const hookCanEmitValues: (keyof TTS)[] | undefined = data.HookCanEmit && data.HookCanEmit?.length > 0 ? data.HookCanEmit.map(tt => tt.value) : undefined
   const { HookParameters } = data
@@ -83,17 +86,23 @@ export const prepareDeployHookTx = async (
   //   }
   // });
   if (typeof window === 'undefined') return
+  const networkID = process.env.NEXT_PUBLIC_NETWORK_ID ? Number(process.env.NEXT_PUBLIC_NETWORK_ID) : undefined
   const tx = {
     Account: account.address,
     TransactionType: 'SetHook',
     Sequence: account.sequence,
     Fee: data.Fee,
-    NetworkID: process.env.NEXT_PUBLIC_NETWORK_ID,
+    NetworkID: networkID,
     Hooks: [
       {
         Hook: {
           CreateCode: arrayBufferToHex(activeFile?.compiledContent).toUpperCase(),
-          HookOn: calculateHookOn(hookOnValues),
+          ...((hookOnIncomingValues.length === 0 && hookOnOutgoingValues.length === 0) ?
+            { HookOn: calculateHookOn(hookOnValues) } :
+            {
+              HookOnIncoming: calculateHookOn(hookOnIncomingValues),
+              HookOnOutgoing: calculateHookOn(hookOnOutgoingValues),
+            }),
           ...(hookCanEmitValues && { HookCanEmit: calculateHookOn(hookCanEmitValues) }),
           HookNamespace,
           HookApiVersion: 0,
@@ -194,12 +203,13 @@ export const deleteHook = async (account: IAccount & { name?: string }) => {
   if (currentAccount?.isLoading || !currentAccount?.hooks.length) {
     return
   }
+  const networkID = process.env.NEXT_PUBLIC_NETWORK_ID ? Number(process.env.NEXT_PUBLIC_NETWORK_ID) : undefined
   const tx = {
     Account: account.address,
     TransactionType: 'SetHook',
     Sequence: account.sequence,
     Fee: '100000',
-    NetworkID: process.env.NEXT_PUBLIC_NETWORK_ID,
+    NetworkID: networkID,
     Hooks: [
       {
         Hook: {
@@ -246,9 +256,8 @@ export const deleteHook = async (account: IAccount & { name?: string }) => {
       })
       state.deployLogs.push({
         type: 'error',
-        message: `[${submitRes.engine_result || submitRes.error}] ${
-          submitRes.engine_result_message || submitRes.error_exception
-        }`
+        message: `[${submitRes.engine_result || submitRes.error}] ${submitRes.engine_result_message || submitRes.error_exception
+          }`
       })
     }
   } catch (err) {
